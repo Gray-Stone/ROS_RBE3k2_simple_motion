@@ -27,6 +27,16 @@ class Robot:
     current = poseStruct()
     desire = poseStruct()
     shutFlag = False
+
+    anglesTest =None
+
+    class valCmdC :
+        pub = rospy.Publisher('cmd_vel',Twist,queue_size=2)
+        msg = Twist()
+        def push(self):
+            self.pub.publish(self.msg)
+
+    valCmd = valCmdC()
     
     def __init__(self):
         """"
@@ -50,6 +60,8 @@ class Robot:
         self.desire.seq= goal.header.seq
         self.desire.x = goal.pose.position.x
         self.desire.y = goal.pose.position.y
+        quat = goal.pose.orientation
+        self.desire.heading = self.quat2theta(quat)
 
     def drive_straight(self, speed, distance):
         """
@@ -60,7 +72,16 @@ class Robot:
         :param distance: distance to drive
         :return:
         """
+        # setting speed will be setting to cmd_vel 
+        # type is geometry_msgs/Twist
 
+        # TODO tell it to stop at some point 
+
+        self.valCmd.msg.linear.x = speed 
+        self.valCmd.push()
+        rospy.sleep(2.2)
+        self.valCmd.msg.linear.x = 0
+        self.valCmd.push()
 
     def rotate(self, angle):
         """
@@ -68,6 +89,12 @@ class Robot:
         :param angle: angle to rotate
         :return:
         """
+        pause = angle
+        self.valCmd.msg.angular.z = 1
+        self.valCmd.push()
+        rospy.sleep(pause)
+        self.valCmd.msg.angular.z = 0
+        self.valCmd.push()
 
     def odom_callback(self, msg):
 
@@ -76,8 +103,18 @@ class Robot:
         :type msg: Odom
         :return:
         """
-        self.current.x = msg.pose.pose.position.x 
+        self.current.x = msg.pose.pose.position.x
+        quat = msg.pose.pose.orientation # this return a Quaternion 
+        self.current.heading = self.quat2theta(quat)
         self.current.y = msg.pose.pose.position.y
+
+    def quat2theta (self, quat):
+        heading = euler_from_quaternion([quat.x , quat.y ,quat.z ,quat.w])[2]
+        if heading <0:
+            heading += math.pi*2 
+        if heading > math.pi*2:
+            heading -= math.pi*2
+        return heading
 
     def shutdown(self):
         # nothing yet 
@@ -99,9 +136,17 @@ if __name__ == '__main__':
     x=10
     print "lab2.py main " , x 
 
+    rospy.sleep(1)
+    R.drive_straight(2,0)
+    rospy.sleep(0.5)
+    R.rotate( 3.14159 )
+
     while not R.shutFlag:
-        print "x y " , R.current.x , R.current.y , " time " , rospy.Time.now()
-        print " desire X Y " ,R.desire.x , R.desire.y , " seq " , R.desire.seq
+        print "\nx y head " , R.current.x , R.current.y,R.current.heading , " time " , rospy.Time.now()
+        print " desire X Y head " ,R.desire.x , R.desire.y , R.desire.heading , " seq " , R.desire.seq
+        print " heading : "
+        print R.anglesTest
+        
         rospy.sleep(2)
 
 
