@@ -24,7 +24,7 @@ class Robot:
         x =None
         y =None
         heading =None
-        seq =0 # this is to keep track of updating
+        seq =-1 # this is to keep track of updating
         def __init__(self,x,y,heading):
             self.x=x
             self.y=y
@@ -33,24 +33,27 @@ class Robot:
     current = PoseStruct(0,0,0)
     desire = PoseStruct(0,0,0)
     reachedFlag = PoseStruct(True,True,True)
-    tolerance = PoseStruct(0.1,0.1,0.5)
+    tolerance = PoseStruct(0.1,0.1, 0.5/180*math.pi )
 
     class ValCmdStruct :
         pub = rospy.Publisher('cmd_vel',Twist,queue_size=2)
         msg = Twist()
         def push(self):
             self.pub.publish(self.msg)
+        def set(self , speed):
+            self.msg.angular.z = speed 
     valCmd = ValCmdStruct()
     
     def __init__(self):
         """"
         Set up the node here
         """
+        rospy.loginfo(   "init the Robot command system")
         # subscrib to odemtry and update stored data
         rospy.Subscriber("odom",Odometry,self.odom_callback)
         # subscrib to simple goal and move the robot to it when it's called
         rospy.Subscriber("move_base_simple/goal",PoseStamped,self.nav_to_pose)
-
+        # make sure it does shutdown when needed
         rospy.on_shutdown(self.shutdown)
 
     def nav_to_pose(self, goal):
@@ -63,6 +66,7 @@ class Robot:
         """
         if self.desire.seq == goal.header.seq : # this mean it's the same old package, nothing need to be done
             return 
+        self.desire.seq = goal.header.seq
         self.desire.x = goal.pose.position.x
         self.desire.y = goal.pose.position.y
         quat = goal.pose.orientation
@@ -110,19 +114,28 @@ class Robot:
         :return:
         """
         self.desire.heading=angle       # store the current angle
+        self.reachCheck()
         while not self.reachedFlag.heading  : # keep controlling itself until reached. 
             self.rotateControl()
-            self.reachCheck()            
 
     def rotateControl(self):    
+    # return True when it's done turning, return false when it's not done turning. 
+        self.reachCheck()  
+        if self.reachedFlag.heading == True :
+            self.valCmd.msg.angular.z = 0
+            self.valCmd.push()
+            return True
+
         # this section assume negative angle will turn right and negative twist will also turn right
         # turning speed should be from 2.0 to 0.1
         # assume at 0.5rad(28deg) reach max speed 
         pGain = 4
-
-        angleDiff= self.current.heading - self.desire.heading   # calculate the amount of turnning needed
-        self.angleFix(angleDiff)                                # fit them within -180 to 180 
+        rospy.logdebug("angle C : %.2f D: %.2f ",self.current.heading,self.desire.heading)
+        angleDiff= self.desire.heading - self.current.heading   # calculate the amount of turnning needed
+        angleDiff = self.angleFix(angleDiff)                                # fit them within -180 to 180 
        
+        rospy.logdebug("DIFF: %.2f" , angleDiff )
+
         turnSpeed = angleDiff * pGain    
         if abs(turnSpeed)>2 :
             turnSpeed = math.copysign(2,turnSpeed)
@@ -131,6 +144,7 @@ class Robot:
 
         self.valCmd.msg.angular.z=turnSpeed
         self.valCmd.push()
+        return False
 
     def quat2theta (self, quat):
         # this function strip out the quaternion from pose into the angle in Z 
@@ -148,15 +162,17 @@ class Robot:
 
     def reachCheck(self):
         # check to see if robot has reached the goal
-        if  (self.desire.x - self.current.x) < self.tolerance.x : 
+        if  abs(self.desire.x - self.current.x) < self.tolerance.x : 
             self.reachedFlag.x = True  
         else: 
              self.reachedFlag.x = False 
-        if  (self.desire.y - self.current.y) < self.tolerance.y : 
+
+        if  abs(self.desire.y - self.current.y) < self.tolerance.y : 
             self.reachedFlag.y = True  
         else: 
              self.reachedFlag.y = False 
-        if  (self.desire.heading - self.current.heading) < self.tolerance.heading : 
+
+        if  abs(self.desire.heading - self.current.heading) < self.tolerance.heading : 
             self.reachedFlag.heading = True  
         else: 
              self.reachedFlag.heading = False 

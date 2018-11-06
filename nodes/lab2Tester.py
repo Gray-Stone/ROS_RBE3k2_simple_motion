@@ -16,6 +16,8 @@ def currecthead(heading):
 		heading -= math.pi*2
 	return heading
 
+a= math.pi
+print "something , \t %.2f \t %.2f : " % (a ,a )
 
 angle = math.pi*0.25
 print "cos"
