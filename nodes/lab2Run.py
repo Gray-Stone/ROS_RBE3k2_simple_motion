@@ -14,20 +14,22 @@ if __name__ == '__main__':
 
 	# rospy.init_node('lab2Run',log_level=rospy.DEBUG) 
 	rospy.init_node('lab2Run') 
-	R = Robot()
 	print "lab2 launch "  
 
+	R = Robot()
+
+	R.drive_straightTest(5)
 	rospy.sleep(0.5)
-	R.drive_straight(2,0)
-	rospy.sleep(0.2)
-	
-	R.rotate( math.pi )
+
+
+
+	R.rotateTest( math.pi )
 	rospy.sleep(1)
-	R.rotate(math.pi/2)
+	R.rotateTest(math.pi/2)
 	rospy.sleep(1)
-	R.rotate(math.pi/3)
+	R.rotateTest(math.pi/3)
 	rospy.sleep(1)
-	R.rotate(-math.pi/4)
+	R.rotateTest(-math.pi/4)
 
 	while not R.shutFlag:
 		printStatus(R)

@@ -19,22 +19,22 @@ def currecthead(heading):
 a= math.pi
 print "something , \t %.2f \t %.2f : " % (a ,a )
 
-angle = math.pi*0.25
-print "cos"
-print "0.5pi  ", math.cos(angle)
-print "-0.5pi ", math.cos(-angle)
+# angle = math.pi*0.25
+# print "cos"
+# print "0.5pi  ", math.cos(angle)
+# print "-0.5pi ", math.cos(-angle)
 
-print "sin"
-print "0.5pi  ", math.sin(angle)
-print "-0.5pi ", math.sin(-angle)
+# print "sin"
+# print "0.5pi  ", math.sin(angle)
+# print "-0.5pi ", math.sin(-angle)
 
-angle = currecthead(angle)
-print "corrected"
-print "cos"
-print "0.5pi  ", math.cos(angle)
-print "-0.5pi ", math.cos(-angle)
+# angle = currecthead(angle)
+# print "corrected"
+# print "cos"
+# print "0.5pi  ", math.cos(angle)
+# print "-0.5pi ", math.cos(-angle)
 
-print "sin"
-print "0.5pi  ", math.sin(angle)
-print "-0.5pi ", math.sin(-angle)
+# print "sin"
+# print "0.5pi  ", math.sin(angle)
+# print "-0.5pi ", math.sin(-angle)
 
