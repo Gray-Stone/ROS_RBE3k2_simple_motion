@@ -1,6 +1,6 @@
 <launch>
 	<include file="$(find turtlebot3_fake)/launch/turtlebot3_fake.launch"/>
 
-	<node pkg="simple_motion" type="lab2Run.py" name="lab2Run" output="screen" />
+	<node pkg="simple_motion" type="lab2.py" name="lab2ToGoal" output="screen" />
 
 </launch>
