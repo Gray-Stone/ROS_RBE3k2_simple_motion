@@ -17,26 +17,30 @@ from tf.transformations import euler_from_quaternion
 
 
 class Robot:
-    # @dataClass
-    class poseStruct:
-        x =0
-        y =0
-        heading =0
-        seq =0 # this is to keep count of which desire position is used
-
-    current = poseStruct()
-    desire = poseStruct()
     shutFlag = False
+    
+    # @dataClass
+    class PoseStruct:
+        x =None
+        y =None
+        heading =None
+        seq =0 # this is to keep track of updating
+        def __init__(self,x,y,heading):
+            self.x=x
+            self.y=y
+            self.heading = heading
 
-    anglesTest =None
+    current = PoseStruct(0,0,0)
+    desire = PoseStruct(0,0,0)
+    reachedFlag = PoseStruct(True,True,True)
+    tolerance = PoseStruct(0.1,0.1,0.5)
 
-    class valCmdC :
+    class ValCmdStruct :
         pub = rospy.Publisher('cmd_vel',Twist,queue_size=2)
         msg = Twist()
         def push(self):
             self.pub.publish(self.msg)
-
-    valCmd = valCmdC()
+    valCmd = ValCmdStruct()
     
     def __init__(self):
         """"
@@ -57,11 +61,27 @@ class Robot:
         :param goal: PoseStamped
         :return:
         """
-        self.desire.seq= goal.header.seq
+        if self.desire.seq == goal.header.seq : # this mean it's the same old package, nothing need to be done
+            return 
         self.desire.x = goal.pose.position.x
         self.desire.y = goal.pose.position.y
         quat = goal.pose.orientation
         self.desire.heading = self.quat2theta(quat)
+        self.reachCheck()
+
+        
+
+    def odom_callback(self, msg):
+        """
+        update the state of the robot
+        :type msg: Odom
+        :return:
+        """
+        self.current.x = msg.pose.pose.position.x
+        self.current.y = msg.pose.pose.position.y
+        quat = msg.pose.pose.orientation # this return a Quaternion 
+        self.current.heading = self.quat2theta(quat)
+        self.current.seq=msg.header.seq     # make sure the numbers are recorded
 
     def drive_straight(self, speed, distance):
         """
@@ -89,32 +109,59 @@ class Robot:
         :param angle: angle to rotate
         :return:
         """
-        pause = angle
-        self.valCmd.msg.angular.z = 1
-        self.valCmd.push()
-        rospy.sleep(pause)
-        self.valCmd.msg.angular.z = 0
-        self.valCmd.push()
+        self.desire.heading=angle       # store the current angle
+        while not self.reachedFlag.heading  : # keep controlling itself until reached. 
+            self.rotateControl()
+            self.reachCheck()            
 
-    def odom_callback(self, msg):
+    def rotateControl(self):    
+        # this section assume negative angle will turn right and negative twist will also turn right
+        # turning speed should be from 2.0 to 0.1
+        # assume at 0.5rad(28deg) reach max speed 
+        pGain = 4
 
-        """
-        update the state of the robot
-        :type msg: Odom
-        :return:
-        """
-        self.current.x = msg.pose.pose.position.x
-        quat = msg.pose.pose.orientation # this return a Quaternion 
-        self.current.heading = self.quat2theta(quat)
-        self.current.y = msg.pose.pose.position.y
+        angleDiff= self.current.heading - self.desire.heading   # calculate the amount of turnning needed
+        self.angleFix(angleDiff)                                # fit them within -180 to 180 
+       
+        turnSpeed = angleDiff * pGain    
+        if abs(turnSpeed)>2 :
+            turnSpeed = math.copysign(2,turnSpeed)
+        if abs(turnSpeed)<0.2 :
+            turnSpeed = math.copysign(0.2,turnSpeed)
+
+        self.valCmd.msg.angular.z=turnSpeed
+        self.valCmd.push()
 
     def quat2theta (self, quat):
+        # this function strip out the quaternion from pose into the angle in Z 
         heading = euler_from_quaternion([quat.x , quat.y ,quat.z ,quat.w])[2]
-        if heading <0:
-            heading += math.pi*2 
-        if heading > math.pi*2:
-            heading -= math.pi*2
-        return heading
+        return self.angleFix(heading)
+       
+    def angleFix (self,angle):
+        # change the input angle to within the -pi to pi range. 
+        # type: msg: number in rad
+        if angle <-math.pi:
+            angle += math.pi*2 
+        if angle > math.pi:
+            angle -= math.pi*2
+        return angle
+
+    def reachCheck(self):
+        # check to see if robot has reached the goal
+        if  (self.desire.x - self.current.x) < self.tolerance.x : 
+            self.reachedFlag.x = True  
+        else: 
+             self.reachedFlag.x = False 
+        if  (self.desire.y - self.current.y) < self.tolerance.y : 
+            self.reachedFlag.y = True  
+        else: 
+             self.reachedFlag.y = False 
+        if  (self.desire.heading - self.current.heading) < self.tolerance.heading : 
+            self.reachedFlag.heading = True  
+        else: 
+             self.reachedFlag.heading = False 
+
+            
 
     def shutdown(self):
         # nothing yet 
@@ -131,23 +178,9 @@ class Robot:
 
 
 if __name__ == '__main__':
-    rospy.init_node('lab2')
-    R = Robot()
-    x=10
-    print "lab2.py main " , x 
 
-    rospy.sleep(1)
-    R.drive_straight(2,0)
-    rospy.sleep(0.5)
-    R.rotate( 3.14159 )
+    print "lab2.py main and nothing to be done " 
 
-    while not R.shutFlag:
-        print "\nx y head " , R.current.x , R.current.y,R.current.heading , " time " , rospy.Time.now()
-        print " desire X Y head " ,R.desire.x , R.desire.y , R.desire.heading , " seq " , R.desire.seq
-        print " heading : "
-        print R.anglesTest
-        
-        rospy.sleep(2)
 
 
     # first listen to /move_base_simple/goal of type geometry_msgs/PoseStamped
