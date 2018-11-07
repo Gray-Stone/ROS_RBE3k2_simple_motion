@@ -35,9 +35,11 @@ if __name__ == '__main__':
 	
 	printStatus(R)
 	distance = 0.25
+
 	rospy.loginfo("start driving straight for %.3f ",distance)
 	R.drive_straightTest(distance)
 	rospy.loginfo("done driving straight")
+	
 	printStatus(R)
 	rospy.sleep(2)
 

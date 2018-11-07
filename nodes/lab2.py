@@ -33,7 +33,7 @@ class Robot:
     current = PoseStruct(0,0,0)     # this is what Odem call back does. 
     desire = PoseStruct(0,0,0)      # controller will run base on these 
     reachedFlag = PoseStruct(True,True,True)
-    tolerance = PoseStruct(0.07,0.07, 0.5/180*math.pi )
+    tolerance = PoseStruct(0.07,0.07, 1/180*math.pi )
 
     class ValCmdStruct :
         pub = rospy.Publisher('cmd_vel',Twist,queue_size=1)
@@ -77,18 +77,25 @@ class Robot:
 
         # if the robot is too much off in heading
         while abs(toGoalHeading)>math.pi/2:
+            rospy.logdebug("NAV: pre-move heading correct")
             xDiff = self.desire.x - self.current.x
             yDiff = self.desire.y - self.current.y
             toGoalHeading = math.atan2(yDiff,xDiff)
             self.rotate(toGoalHeading)
             self.valCmd.push()
+            if self.shutFlag == True :
+                break
+            
         self.stopMoving()
+        rospy.logdebug("NAV: pre-move done")
+
         rospy.sleep(1)
 
         # move robot toward goal, and turning at the same time 
         while self.shutFlag == False:
             if self.drive_straight() :
                 break 
+            rospy.logdebug("NAV: moving")
             xDiff = self.desire.x - self.current.x
             yDiff = self.desire.y - self.current.y
             toGoalHeading = math.atan2(yDiff,xDiff)
@@ -96,11 +103,13 @@ class Robot:
             self.valCmd.push()
         self.stopMoving()
 
-        while self.shutFlag
+        # line up robot with desire heading 
+        while self.shutFlag == False :
+            if self.rotate(self.desire.heading) == True :
+                break
+            self.valCmd.push()
+            rospy.logdebug("NAV: lineup heading")
 
-
-        
-            
 
     def navPoint_callback(self,goal):
         # type: (PoseStamped) -> None
@@ -147,8 +156,9 @@ class Robot:
 
         # move in the same direction as robot
         self.desire.x = self.current.x + distance* math.cos(self.current.heading)
+        self.desire.y = self.current.y + distance* math.sin(self.current.heading)
 
-        self.reachCheck(self.CheckType.Pos)
+        self.reachCheck()
         while not self.reachedFlag.x :
             self.drive_straight()
             self.valCmd.push()
@@ -160,21 +170,21 @@ class Robot:
     def drive_straight(self):
         """ actually control the robot forwared 
         """ 
-        self.reachCheck(self.CheckType.Pos)
+        self.reachCheck()
         if self.reachedFlag.x  and self.reachedFlag.y:        
             self.valCmd.msg.linear.x = 0
             self.valCmd.msg.angular.z = 0
             return True
         
-        pGain = 0.5
+        pGain = 0.3
         xDiff = self.desire.x - self.current.x
         yDiff = self.desire.y - self.current.y
         dis = math.sqrt( xDiff*xDiff + yDiff*yDiff)        
         moveSpeed = pGain*dis
-        if moveSpeed>0.3 :
-            moveSpeed = 0.3
-        if moveSpeed<0.02 :
-            moveSpeed = 0.02
+        if moveSpeed>0.2 :
+            moveSpeed = 0.2
+        if moveSpeed<0.05 :
+            moveSpeed = 0.05
 
         rospy.logdebug("disDiff is %.2f , moveSpeed :%.2f" , dis,moveSpeed)
         # prefvent sending too much package
@@ -193,7 +203,7 @@ class Robot:
         :return:
         """
         self.desire.heading=angle       # store the current angle
-        self.reachCheck(self.CheckType.Angle)  
+        self.reachCheck()  
         while not self.reachedFlag.heading  : # keep controlling itself until reached. 
             self.rotate(angle)
             self.valCmd.push()
@@ -224,8 +234,10 @@ class Robot:
 
         rospy.logdebug("turnSpeed: %.2f" , turnSpeed )
 
-        if abs( self.valCmd.msg.angular.z - turnSpeed) >0.05 :
-            self.valCmd.msg.angular.z = turnSpeed
+        # if abs( self.valCmd.msg.angular.z - turnSpeed) >0.05 :
+        #     self.valCmd.msg.angular.z = turnSpeed
+        self.valCmd.msg.angular.z = turnSpeed
+
 
 #####################           Helper 
 ###################################################
@@ -292,8 +304,13 @@ if __name__ == '__main__' :
     rospy.sleep(2)
     rospy.loginfo("directly for moving to goal") 
     
-    while True :
+    R.desire.heading =  R.current.heading
+    while R.shutFlag == False :
         R.nav_to_pose()
         rospy.sleep(2)
+
+    R.stopMoving()
+    rospy.sleep(0.5)
+    R.shopMoving()
 
 
