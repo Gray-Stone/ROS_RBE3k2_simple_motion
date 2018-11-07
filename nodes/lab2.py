@@ -13,6 +13,8 @@ from geometry_msgs.msg import PoseWithCovarianceStamped
 from nav_msgs.msg import Odometry
 from tf.transformations import euler_from_quaternion
 
+from std_msgs.msg import Empty
+
    
 
 
@@ -33,17 +35,21 @@ class Robot:
     current = PoseStruct(0,0,0)     # this is what Odem call back does. 
     desire = PoseStruct(0,0,0)      # controller will run base on these 
     reachedFlag = PoseStruct(True,True,True)
-    tolerance = PoseStruct(0.07,0.07, 1/180*math.pi )
+    tolerance = PoseStruct(0.07,0.07, 0.1 )
 
     class ValCmdStruct :
-        pub = rospy.Publisher('cmd_vel',Twist,queue_size=1)
+        pub = rospy.Publisher('cmd_vel',Twist,queue_size=5)
         msg = Twist()
+        sendTime = None 
+
         def push(self):
             self.pub.publish(self.msg)
+            sendTime =rospy.get_time()
         def setZ(self , speed):
             self.msg.angular.z = speed 
         def setX(self, speed):
             self.msg.linear.x=speed 
+
     valCmd = ValCmdStruct()
 
     class CheckType:
@@ -61,7 +67,11 @@ class Robot:
         rospy.Subscriber("move_base_simple/goal",PoseStamped,self.navPoint_callback)
         # make sure it does shutdown when needed
         rospy.on_shutdown(self.shutdown)
+        # reset odemtry 
+        reset_odom = rospy.Publisher('/mobile_base/commands/reset_odometry', Empty, queue_size=2)
+        reset_odom.publish(Empty())
 
+        self.valCmd.sendTime = self.getTime()
         self.valCmd.msg.linear.x = 0
         self.valCmd.msg.angular.z=0
         self.valCmd.push()
@@ -76,40 +86,50 @@ class Robot:
         # rospy.logdebug("calculated direction toward goal is %.2f", toGoalHeading/math.pi*180)
 
         # if the robot is too much off in heading
-        while abs(toGoalHeading)>math.pi/2:
-            rospy.logdebug("NAV: pre-move heading correct")
+        rospy.loginfo("NAV: \t\t pre-move heading correct with ")
+        while abs(toGoalHeading- self.current.heading)>math.pi/4:
             xDiff = self.desire.x - self.current.x
             yDiff = self.desire.y - self.current.y
             toGoalHeading = math.atan2(yDiff,xDiff)
-            self.rotate(toGoalHeading)
-            self.valCmd.push()
+            if self.rotate(toGoalHeading) == True :
+                break
+            if self.getTime() - self.valCmd.sendTime > 0.01:
+                self.valCmd.push()
             if self.shutFlag == True :
                 break
+
             
         self.stopMoving()
-        rospy.logdebug("NAV: pre-move done")
-
-        rospy.sleep(1)
 
         # move robot toward goal, and turning at the same time 
+        rospy.loginfo("NAV: moving")
         while self.shutFlag == False:
-            if self.drive_straight() :
-                break 
-            rospy.logdebug("NAV: moving")
+
             xDiff = self.desire.x - self.current.x
             yDiff = self.desire.y - self.current.y
             toGoalHeading = math.atan2(yDiff,xDiff)
+            if abs(toGoalHeading- self.current.heading)>math.pi/4 :
+                rospy.loginfo("went over")
+                self.stopMoving()
+                # self.desire.seq+=1 # this will force the main to rerun the control loop again 
+                return 
+
             self.rotate(toGoalHeading)
+            if self.drive_straight() :
+                break 
             self.valCmd.push()
+
         self.stopMoving()
 
         # line up robot with desire heading 
+        rospy.loginfo("NAV: lineup heading")
         while self.shutFlag == False :
             if self.rotate(self.desire.heading) == True :
                 break
-            self.valCmd.push()
-            rospy.logdebug("NAV: lineup heading")
-
+            if self.getTime() - self.valCmd.sendTime > 0.01:
+                self.valCmd.push()
+        
+        rospy.loginfo("NAV: \t DONE! -- ")
 
     def navPoint_callback(self,goal):
         # type: (PoseStamped) -> None
@@ -176,23 +196,18 @@ class Robot:
             self.valCmd.msg.angular.z = 0
             return True
         
-        pGain = 0.3
+        pGain = 0.5
         xDiff = self.desire.x - self.current.x
         yDiff = self.desire.y - self.current.y
         dis = math.sqrt( xDiff*xDiff + yDiff*yDiff)        
         moveSpeed = pGain*dis
-        if moveSpeed>0.2 :
-            moveSpeed = 0.2
-        if moveSpeed<0.05 :
-            moveSpeed = 0.05
+        if moveSpeed>0.13 :
+            moveSpeed = 0.13
+        if moveSpeed<0.04 :
+            moveSpeed = 0.04
 
         rospy.logdebug("disDiff is %.2f , moveSpeed :%.2f" , dis,moveSpeed)
         # prefvent sending too much package
-        speedDiff = moveSpeed - self.valCmd.msg.linear.x 
-        # if abs(speedDiff) > 0.02 :
-        #     self.valCmd.msg.linear.x = moveSpeed
-        #     self.valCmd.push()
-        # return False
         self.valCmd.msg.linear.x = moveSpeed
         return False 
 
@@ -213,29 +228,28 @@ class Robot:
     def rotate(self,angle):    
     # return True when it's done turning, return false when it's not done turning. 
        
-        if  abs(angle - self.current.heading) < self.tolerance.heading : 
+        rospy.logdebug("\tangle C : %.2f D: %.2f",self.current.heading,angle)
+        if  abs ( angle - self.current.heading  )<self.tolerance.heading : 
             self.valCmd.msg.angular.z = 0
+            self.valCmd.push()
             return True
 
         # this section assume negative angle will turn right and negative twist will also turn right
         # turning speed should be from 2.0 to 0.1
         # assume at 0.5rad(28deg) reach max speed 
-        pGain = 2
-        # rospy.logdebug("angle C : %.2f D: %.2f ",self.current.heading,self.desire.heading)
+        pGain = 3
         angleDiff= angle - self.current.heading   # calculate the amount of turnning needed
         angleDiff = self.angleFix(angleDiff)                                # fit them within -180 to 180 
        
 
         turnSpeed = angleDiff * pGain    
-        if abs(turnSpeed)>0.7 :
-            turnSpeed = math.copysign(0.7,turnSpeed)
-        if abs(turnSpeed)<0.1 :
-            turnSpeed = math.copysign(0.1,turnSpeed)
+        if abs(turnSpeed)>0.4 :
+            turnSpeed = math.copysign(0.4,turnSpeed)
+        if abs(turnSpeed)<0.09 :
+            turnSpeed = math.copysign(0.09,turnSpeed)
 
-        rospy.logdebug("turnSpeed: %.2f" , turnSpeed )
-
-        # if abs( self.valCmd.msg.angular.z - turnSpeed) >0.05 :
-        #     self.valCmd.msg.angular.z = turnSpeed
+        rospy.logdebug("\tangle C : %.2f D: %.2f S: %.2f",self.current.heading,angle,turnSpeed)
+        # rospy.logdebug("turnSpeed: %.2f" , turnSpeed )
         self.valCmd.msg.angular.z = turnSpeed
 
 
@@ -285,16 +299,17 @@ class Robot:
         self.desire.seq=999
         print "\n\nshutting down (should be)\n\n"
         self.shutFlag=True
+        self.stopMoving()
     def getTime(self):
         pass
-        # rospy.Time.now
- 
+        return rospy.get_time()
+
 
 
 if __name__ == '__main__' : 
 
-    rospy.init_node('lab2Goal',log_level=rospy.DEBUG)
-    # rospy.init_node('lab2Goal',log_level=rospy.INFO)
+    # rospy.init_node('lab2Goal',log_level=rospy.DEBUG)
+    rospy.init_node('lab2Goal',log_level=rospy.INFO)
 
     R = Robot()
     rospy.loginfo("init the robot comminder")
@@ -305,12 +320,34 @@ if __name__ == '__main__' :
     rospy.loginfo("directly for moving to goal") 
     
     R.desire.heading =  R.current.heading
-    while R.shutFlag == False :
-        R.nav_to_pose()
-        rospy.sleep(2)
+    R.desire.x =  R.current.x
+    R.desire.y =  R.current.y
+
+
+    R.stopMoving()
+
+    print "debug time " , R.getTime() , type(R.getTime())
+
+    try:
+        nowSeq = -1
+        while R.shutFlag == False :
+            R.nav_to_pose()
+            while R.desire.seq == nowSeq:
+                rospy.sleep(0.05)
+            # todo, update nowSeq, or it will still loop this
+            # nowSeq = R.desire.seq
+            rospy.logdebug("MAIN: got new command")
+
+        R.stopMoving()
+
+    except rospy.ROSInterruptException :
+        R.stopMoving()
+
 
     R.stopMoving()
     rospy.sleep(0.5)
-    R.shopMoving()
+    R.stopMoving()
+
+
 
 
